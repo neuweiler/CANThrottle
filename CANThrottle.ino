@@ -32,17 +32,37 @@
 #define CFG_LCD_MONITOR_COLUMNS 16 // specify the number of columns of the display
 #define CFG_LCD_MONITOR_ROWS 2 // specify the number of rows of the display
 
-#define CAN_THROTTLE_REQUEST_ID 0x7e0  // the can bus id of the throttle level request
-#define CAN_THROTTLE_RESPONSE_ID 0x7e8 // the can bus id of the throttle level response
-#define CAN_THROTTLE_DATA_BYTE 4 // the number of the data byte containing the throttle level
 #define CAN_THROTTLE_REQUEST_DELAY 200 // milliseconds to wait between sending throttle requests
 
+#define VOLVO_V50
+//#define VOLVO_S80
+
+#ifdef VOLVO_V50
+#define CAN_THROTTLE_REQUEST_ID 0x3FFFE
+#define CAN_THROTTLE_REQUEST_DATA {0xcd, 0x11, 0xa6, 0x00, 0x24, 0x01, 0x00, 0x00}
+#define CAN_THROTTLE_REQUEST_EXT true
+#define CAN_THROTTLE_RESPONSE_ID 0x21
+#define CAN_THROTTLE_RESPONSE_MASK 0x1fffffff
+#define CAN_THROTTLE_RESPONSE_EXT true
+#define CAN_THROTTLE_DATA_BYTE 6
+#endif // VOLVO_V50
+
+#ifdef VOLVO_S80
+#define CAN_THROTTLE_REQUEST_ID 0x7e0
+#define CAN_THROTTLE_REQUEST_DATA {0x03, 0x22, 0xee, 0xcb, 0x00, 0x00, 0x00, 0x00}
+#define CAN_THROTTLE_REQUEST_EXT false
+#define CAN_THROTTLE_RESPONSE_ID 0x7e8
+#define CAN_THROTTLE_RESPONSE_MAS 0x7ff
+#define CAN_THROTTLE_RESPONSE_EXT false
+#define CAN_THROTTLE_DATA_BYTE 4
+#endif // VOLVO_S80
+
 LiquidCrystal lcd(CFG_LCD_MONITOR_PINS);
-RX_CAN_FRAME incoming;
 uint32_t lastRequestTime;
+byte data[] = CAN_THROTTLE_REQUEST_DATA;
 
 void sendRequest();
-void handleResponse();
+void handleResponse(CAN_FRAME &);
 
 void setup()
 {
@@ -56,19 +76,9 @@ void setup()
 	lcd.print("CAN Throttle");
 
 	// Initialize the CAN bus
-	CAN.init(SystemCoreClock, CAN_BPS_500K);
-
+	CAN2.init(CAN_BPS_500K);
 	//Initialize mailbox 0 to receive messages from the ECU Id
-	CAN.mailbox_init(0);
-	CAN.mailbox_set_mode(0, CAN_MB_RX_MODE);
-	CAN.mailbox_set_accept_mask(0, CAN_THROTTLE_RESPONSE_ID, false);
-	CAN.mailbox_set_id(0, CAN_THROTTLE_RESPONSE_ID, false);
-
-	// Initialize mailbox 1 to send data to the ECU.
-	CAN.mailbox_init(1);
-	CAN.mailbox_set_mode(1, CAN_MB_TX_MODE);
-	CAN.mailbox_set_priority(1, 10);
-	CAN.mailbox_set_accept_mask(1, 0x7FF, false);
+	CAN2.setRXFilter(0, CAN_THROTTLE_RESPONSE_ID, CAN_THROTTLE_RESPONSE_MASK, CAN_THROTTLE_RESPONSE_EXT);
 
 	Serial.println("setup complete");
 }
@@ -81,37 +91,37 @@ void loop()
 		lastRequestTime = millis();
 	}
 	// check if there is a response
-	if (CAN.mailbox_get_status(0) & CAN_MSR_MRDY) {
-		handleResponse();
+	if (CAN2.rx_avail()) {
+		CAN_FRAME incoming;
+		CAN2.get_rx_buff(incoming);
+		handleResponse(incoming);
 	}
 }
 
 /*
  * Send a request to the ECU.
  *
+ * V50:
+ * Trace log of Vida: [0x00, 0xf, 0xff, 0xfe, 0xcd, 0x11, 0xa6, 0x00, 0x24, 0x01, 0x00, 0x00]
+ * Trace log of CANMonitor: dlc=0x08 fid=0xFFFFE id=0x3FFFE ide=0x01 rtr=0x00 data=0xCD,0x11,0xA6,0x00,0x24,0x01,0x00,0x00,
+ * S80:
  * Trace log of Vida: [0x00, 0x00, 0x07, 0xe0, 0x22, 0xee, 0xcb]
  * Trace log of CANMonitor: dlc=0x08 fid=0x7e0 id=0x7e0 ide=0x00 rtr=0x00 data=0x03,0x22,0xEE,0xCB,0x00,0x00,0x00,0x00
  *
  */
 void sendRequest() {
+	CAN_FRAME frame;
 
 	Serial.print(millis());
 	Serial.println(" - sending request");
-	CAN.mailbox_set_id(1, CAN_THROTTLE_REQUEST_ID, false);
-	CAN.mailbox_set_datalen(1, 8);
-//TODO: convert the single databytes to a correct datal and datah value
-//	CAN.mailbox_set_datal(1, 0x0322eecb);
-//	CAN.mailbox_set_datah(1, 0x00000000);
-	CAN.mailbox_set_databyte(1, 0, 0x03);
-	CAN.mailbox_set_databyte(1, 1, 0x22);
-	CAN.mailbox_set_databyte(1, 2, 0xee);
-	CAN.mailbox_set_databyte(1, 3, 0xcb);
-	CAN.mailbox_set_databyte(1, 4, 0x00);
-	CAN.mailbox_set_databyte(1, 5, 0x00);
-	CAN.mailbox_set_databyte(1, 6, 0x00);
-	CAN.mailbox_set_databyte(1, 7, 0x00);
 
-	CAN.global_send_transfer_cmd(CAN_TCR_MB1);
+	frame.length = 0x08;
+	frame.priority = 10;
+	frame.id = CAN_THROTTLE_REQUEST_ID;
+	frame.extended = CAN_THROTTLE_REQUEST_EXT;
+	memcpy(frame.data.bytes, data, 8);
+
+	CAN2.sendFrame(frame);
 }
 
 /*
@@ -119,6 +129,10 @@ void sendRequest() {
  * and convert the response value to a percentage to display on
  * the LCD.
  *
+ * V50:
+ * Trace log of Vida: [0x00, 0x40, 0x00, 0x21, 0xce, 0x11, 0xe6, 0x00, 0x24, 0x03, 0xfd, 0x00] (2nd last byte contains throttle value)
+ * Trace of CANMonitor: dlc=0x08 fid=0x400021 id=0x21 ide=0x01 rtr=0x00 data=0xCE,0x11,0xE6,0x00,0x24,0x03,0xFD,0x00
+ * S80:
  * Trace log of Vida: [0x00, 0x00, 0x07, 0xe8, 0x62, 0xee, 0xcb, 0x14]
  * Trace log of CANMonitor: dlc=0x08 fid=0x7e8 id=0x7e8 ide=0x00 rtr=0x00 data=0x04,0x62,0xEE,0xCB,0x14,0x00,0x00,0x00
  *
@@ -126,33 +140,31 @@ void sendRequest() {
  * 0x07, 0xe8) and how it ommits the first data byte which represents
  * the number of remaining bytes in the frame.
  */
-void handleResponse() {
-	CAN.mailbox_read(0, &incoming);
-
+void handleResponse(CAN_FRAME &frame) {
 	Serial.print(micros());
 	Serial.print(" - CAN: dlc=0x");
-	Serial.print(incoming.dlc, HEX);
+	Serial.print(frame.length, HEX);
 	Serial.print(" fid=0x");
-	Serial.print(incoming.fid, HEX);
+	Serial.print(frame.fid, HEX);
 	Serial.print(" id=0x");
-	Serial.print(incoming.id, HEX);
+	Serial.print(frame.id, HEX);
 	Serial.print(" ide=0x");
-	Serial.print(incoming.ide, HEX);
+	Serial.print(frame.extended, HEX);
 	Serial.print(" rtr=0x");
-	Serial.print(incoming.rtr, HEX);
+	Serial.print(frame.rtr, HEX);
 	Serial.print(" data=");
 	for (int i = 0; i < 8; i++) {
 		Serial.print("0x");
-		Serial.print(incoming.data[i], HEX);
+		Serial.print(frame.data.bytes[i], HEX);
 		Serial.print(",");
 	}
 	Serial.println();
 
-	if (incoming.id == CAN_THROTTLE_RESPONSE_ID) {
+	if (frame.id == CAN_THROTTLE_RESPONSE_ID) {
 		lcd.setCursor(0, 0);
 		lcd.print("CAN Throttle: ");
 		lcd.setCursor(0, 1);
-		lcd.print((float) incoming.data[CAN_THROTTLE_DATA_BYTE] * 100.0 / 255.0);
+		lcd.print((float) frame.data.bytes[CAN_THROTTLE_DATA_BYTE] * 100.0 / 255.0);
 		lcd.print("% ");
 	}
 }

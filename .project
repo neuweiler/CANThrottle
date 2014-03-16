@@ -27,14 +27,14 @@
 	</natures>
 	<linkedResources>
 		<link>
-			<name>Libraries/DueCAN</name>
-			<type>2</type>
-			<locationURI>ArduinoHardwareLibPath/DueCAN</locationURI>
-		</link>
-		<link>
 			<name>Libraries/LiquidCrystal</name>
 			<type>2</type>
 			<locationURI>ArduinoLibPath/LiquidCrystal</locationURI>
+		</link>
+		<link>
+			<name>Libraries/due_can</name>
+			<type>2</type>
+			<locationURI>ArduinoPivateLibPath/due_can</locationURI>
 		</link>
 		<link>
 			<name>arduino/core</name>
@@ -50,15 +50,15 @@
 	<variableList>
 		<variable>
 			<name>ArduinoHardwareLibPath</name>
-			<value>file:/Z:/development/arduino/arduino-1.5.2/hardware/arduino/sam/libraries</value>
+			<value>file:/C:/data/development/arduino/arduino-1.5.6-r2/hardware/arduino/sam/libraries</value>
 		</variable>
 		<variable>
 			<name>ArduinoPinPath</name>
-			<value>file:/Z:/development/arduino/arduino-1.5.2/hardware/arduino/sam/variants</value>
+			<value>file:/C:/data/development/arduino/arduino-1.5.6-r2/hardware/arduino/sam/variants</value>
 		</variable>
 		<variable>
 			<name>ArduinoPlatformPath</name>
-			<value>file:/Z:/development/arduino/arduino-1.5.2/hardware/arduino/sam</value>
+			<value>file:/C:/data/development/arduino/arduino-1.5.6-r2/hardware/arduino/sam</value>
 		</variable>
 	</variableList>
 </projectDescription>
